@@ -1,0 +1,13 @@
+-- Achado na revisão final do plano de IA (Gemini): a migration 0012 revogou
+-- EXECUTE do pseudo-role 'public' (via revoke direto nas 3 funções + alter
+-- default privileges pra funções futuras), mas isso não bloqueia 'anon' —
+-- o Supabase concede EXECUTE a 'anon' via um privilégio padrão PRÓPRIO da
+-- plataforma (pg_default_acl), independente do que existe pra 'public'.
+-- Confirmado ao vivo: mesmo com a 0012 aplicada, uma função nova criada
+-- depois dela ainda tinha has_function_privilege('anon', ..., 'EXECUTE')
+-- = true. A 0012 corrigiu as 3 funções que já existiam na hora — não
+-- fechou a causa raiz pra funções futuras. Esta migration fecha isso de
+-- vez: revoga o privilégio padrão de 'anon' (não mexe em 'authenticated',
+-- que deve continuar recebendo acesso por padrão — é o comportamento
+-- correto/esperado, todas as funções de negócio são pra uso autenticado).
+alter default privileges in schema public revoke execute on functions from anon;

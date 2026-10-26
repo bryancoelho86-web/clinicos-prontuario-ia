@@ -1,0 +1,17 @@
+-- Bug real encontrado testando o card "Atenção — Estoque" do Dashboard: o
+-- material "Agulha" estava abaixo do mínimo (2 de 5) mas o card mostrava
+-- "Nenhum item em estoque crítico." A view v_estoque_critico (criada na
+-- 0001_schema_final) retorna a linha certa quando consultada como
+-- postgres/service_role, mas nunca teve GRANT SELECT para authenticated —
+-- só postgres e service_role podem ler. O frontend consulta via
+-- supabase.from('v_estoque_critico').select('*') com o client autenticado
+-- do Dr., que recebe erro de permissão da PostgREST; o hook
+-- (useEstoqueCritico, useDashboard.js) não trata esse erro, só faz
+-- `data: estoqueCritico = []`, escondendo a falha atrás do estado vazio
+-- legítimo. Mesma classe de bug das migrations 0012-0014 (função nova sem
+-- grant explícito), mas em uma view, não função.
+--
+-- Nota: v_pacientes_retorno_atrasado e v_aniversariantes_mes (também
+-- criadas na 0001, mesmo padrão) têm o mesmo problema — corrigir junto
+-- se/quando o Dr. reportar o mesmo sintoma nelas.
+grant select on public.v_estoque_critico to authenticated;
