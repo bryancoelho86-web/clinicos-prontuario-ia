@@ -7,7 +7,7 @@ import {
 import {
   usePaciente, useUpdatePacienteResumo, useUpdatePacienteCpf,
   useTimelineEventos, useAdicionarObservacaoTimeline, useEditarDescricaoTimeline,
-  useRegistrarSessaoRetroativa, useVincularFotoASessao,
+  useRegistrarSessaoRetroativa, useVincularFotoASessao, useSessoesDePlanos,
   useFotosPaciente, useUploadFoto, useRemoverFoto,
   useExames, useUploadExame, useRemoverDocumento,
   useInvestimentos, useNotasFiscais, useCriarInvestimento, useAtualizarInvestimento, useUploadNotaFiscal,
@@ -159,7 +159,7 @@ export default function PacientePerfil() {
       </div>
 
       {activeTab === 'timeline' && <TimelineTab pacienteId={paciente.id} planos={paciente.planos_tratamento} />}
-      {activeTab === 'fotos' && <FotosTab pacienteId={paciente.id} />}
+      {activeTab === 'fotos' && <FotosTab pacienteId={paciente.id} planos={paciente.planos_tratamento} />}
       {activeTab === 'perfil' && <GraficosExameTab pacienteId={paciente.id} />}
       {activeTab === 'investimentos' && <InvestimentosTab pacienteId={paciente.id} />}
 
@@ -1398,12 +1398,20 @@ function TimelineTab({ pacienteId, planos }) {
   );
 }
 
-function FotosTab({ pacienteId }) {
+const SEM_SESSAO_LABEL = 'Sem sessão vinculada';
+
+function FotosTab({ pacienteId, planos }) {
   const { data: fotos = [] } = useFotosPaciente(pacienteId);
   const uploadFoto = useUploadFoto();
+  const vincularFoto = useVincularFotoASessao();
   const inputRef = useRef(null);
   const [fotoParaExcluir, setFotoParaExcluir] = useState(null);
   const [fotoAberta, setFotoAberta] = useState(null);
+  const [vinculandoGrupo, setVinculandoGrupo] = useState(null);
+  const [sessaoEscolhida, setSessaoEscolhida] = useState('');
+
+  const planoIds = (planos || []).map((p) => p.id);
+  const { data: sessoesDisponiveis = [] } = useSessoesDePlanos(planoIds);
 
   const handleFiles = (files) => {
     Array.from(files || []).forEach((file) => {
@@ -1413,9 +1421,33 @@ function FotosTab({ pacienteId }) {
     });
   };
 
+  const abrirVinculo = (label) => {
+    setVinculandoGrupo(vinculandoGrupo === label ? null : label);
+    setSessaoEscolhida('');
+  };
+
+  const confirmarVinculo = (fotosDoGrupo) => {
+    if (!sessaoEscolhida) return;
+    let restantes = fotosDoGrupo.length;
+    let falhou = false;
+    fotosDoGrupo.forEach((f) => {
+      vincularFoto.mutate({ pacienteId, documentoId: f.id, sessaoId: sessaoEscolhida }, {
+        onError: (error) => { falhou = true; toast({ title: 'Erro ao vincular foto', description: error?.message, variant: 'destructive' }); },
+        onSettled: () => {
+          restantes -= 1;
+          if (restantes === 0) {
+            if (!falhou) toast({ title: 'Fotos vinculadas à sessão.' });
+            setVinculandoGrupo(null);
+            setSessaoEscolhida('');
+          }
+        },
+      });
+    });
+  };
+
   const groups = new Map();
   fotos.forEach((f) => {
-    const key = f.titulo || (f.sessoes?.numero_sessao ? `Sessão ${f.sessoes.numero_sessao}` : 'Sem sessão vinculada');
+    const key = f.titulo || (f.sessoes?.numero_sessao ? `Sessão ${f.sessoes.numero_sessao}` : SEM_SESSAO_LABEL);
     if (!groups.has(key)) groups.set(key, []);
     groups.get(key).push(f);
   });
@@ -1439,12 +1471,66 @@ function FotosTab({ pacienteId }) {
       {groups.size === 0 ? (
         <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>Nenhuma foto registrada ainda.</p>
       ) : (
-        [...groups.entries()].map(([label, group]) => (
+        [...groups.entries()].map(([label, group]) => {
+          const semSessao = label === SEM_SESSAO_LABEL;
+          const editandoVinculo = vinculandoGrupo === label;
+          return (
           <div key={label} className="bg-card rounded-2xl border p-5" style={{ borderColor: 'var(--border-color)', boxShadow: '0 8px 20px rgba(0,0,0,.05)' }}>
             <div className="flex items-center justify-between mb-4">
-              <h3 className="font-semibold" style={{ color: 'var(--text-primary)' }}>{label}</h3>
+              <div className="flex items-center gap-1.5">
+                <h3 className="font-semibold" style={{ color: 'var(--text-primary)' }}>{label}</h3>
+                {semSessao && (
+                  <button
+                    onClick={() => abrirVinculo(label)}
+                    className="p-1 rounded-md transition-colors"
+                    style={{ color: 'var(--heading-accent)' }}
+                    aria-label="Vincular fotos a uma sessão"
+                    title="Vincular a uma sessão"
+                  >
+                    <Pencil size={13} />
+                  </button>
+                )}
+              </div>
               <span className="text-xs" style={{ color: 'var(--text-secondary)' }}>{group.length} foto{group.length > 1 ? 's' : ''}</span>
             </div>
+            {editandoVinculo && (
+              <div className="flex flex-wrap items-center gap-2 mb-4 p-3 rounded-xl" style={{ backgroundColor: 'var(--bg-tag)' }}>
+                {sessoesDisponiveis.length === 0 ? (
+                  <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>Nenhuma sessão registrada ainda para este paciente.</p>
+                ) : (
+                  <>
+                    <select
+                      value={sessaoEscolhida}
+                      onChange={(e) => setSessaoEscolhida(e.target.value)}
+                      className="px-3 py-2 rounded-lg border text-sm outline-none flex-1 min-w-[200px]"
+                      style={{ borderColor: 'var(--border-color)', backgroundColor: 'rgb(var(--card))' }}
+                    >
+                      <option value="">Selecione a sessão...</option>
+                      {sessoesDisponiveis.map((s) => (
+                        <option key={s.id} value={s.id}>
+                          Sessão {s.numero_sessao}{s.data ? ` — ${new Date(s.data).toLocaleDateString('pt-BR')}` : ''}
+                        </option>
+                      ))}
+                    </select>
+                    <button
+                      onClick={() => confirmarVinculo(group)}
+                      disabled={!sessaoEscolhida || vincularFoto.isPending}
+                      className="px-3 py-2 rounded-lg text-sm font-semibold text-white disabled:opacity-50"
+                      style={{ backgroundColor: 'var(--green-primary)' }}
+                    >
+                      {vincularFoto.isPending ? 'Vinculando...' : 'Vincular'}
+                    </button>
+                  </>
+                )}
+                <button
+                  onClick={() => setVinculandoGrupo(null)}
+                  className="px-3 py-2 rounded-lg text-sm font-medium border"
+                  style={{ borderColor: 'var(--border-color)', color: 'var(--text-secondary)' }}
+                >
+                  Cancelar
+                </button>
+              </div>
+            )}
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
               {group.map((f) => (
                 <div key={f.id} onClick={() => setFotoAberta(f)} className="relative group aspect-square rounded-xl overflow-hidden cursor-pointer border" style={{ borderColor: 'var(--border-color)' }}>
@@ -1456,7 +1542,8 @@ function FotosTab({ pacienteId }) {
               ))}
             </div>
           </div>
-        ))
+          );
+        })
       )}
       {fotoParaExcluir && (
         <ConfirmarExcluirFotoModal

@@ -168,6 +168,26 @@ export function useVincularFotoASessao() {
   });
 }
 
+// Lista as sessões já existentes (de todos os planos do paciente) pra
+// alimentar o seletor de "vincular foto a uma sessão" na aba de Fotos.
+export function useSessoesDePlanos(planoIds = []) {
+  const idsOrdenados = [...planoIds].sort();
+  return useQuery({
+    queryKey: ['sessoes-planos', idsOrdenados],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('sessoes')
+        .select('id, numero_sessao, data, status, plano_tratamento_id')
+        .in('plano_tratamento_id', idsOrdenados)
+        .neq('status', 'cancelada')
+        .order('numero_sessao', { ascending: true });
+      if (error) throw error;
+      return data;
+    },
+    enabled: idsOrdenados.length > 0,
+  });
+}
+
 export function useEditarDescricaoTimeline() {
   const queryClient = useQueryClient();
   return useMutation({
