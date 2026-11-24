@@ -168,23 +168,22 @@ export function useVincularFotoASessao() {
   });
 }
 
-// Lista as sessões já existentes (de todos os planos do paciente) pra
-// alimentar o seletor de "vincular foto a uma sessão" na aba de Fotos.
-export function useSessoesDePlanos(planoIds = []) {
-  const idsOrdenados = [...planoIds].sort();
-  return useQuery({
-    queryKey: ['sessoes-planos', idsOrdenados],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from('sessoes')
-        .select('id, numero_sessao, data, status, plano_tratamento_id')
-        .in('plano_tratamento_id', idsOrdenados)
-        .neq('status', 'cancelada')
-        .order('numero_sessao', { ascending: true });
+// Rotula manualmente uma foto "sem sessão vinculada" com um texto livre
+// (ex: "Sessão 1") — pra pacientes migrados que não têm nenhuma sessão
+// real cadastrada ainda, o Dr. só marca qual sessão é cada grupo de fotos
+// sem precisar vincular a uma sessão de verdade. `documentos` não tem RLS
+// de UPDATE pra `authenticated`, por isso passa por RPC dedicada.
+export function useRenomearFoto() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ pacienteId, documentoId, titulo }) => {
+      const { error } = await supabase.rpc('renomear_foto', {
+        p_documento_id: documentoId,
+        p_titulo: titulo,
+      });
       if (error) throw error;
-      return data;
     },
-    enabled: idsOrdenados.length > 0,
+    onSuccess: (_data, { pacienteId }) => queryClient.invalidateQueries({ queryKey: ['documentos', pacienteId, 'foto'] }),
   });
 }
 

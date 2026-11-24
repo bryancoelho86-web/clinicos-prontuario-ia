@@ -7,7 +7,7 @@ import {
 import {
   usePaciente, useUpdatePacienteResumo, useUpdatePacienteCpf,
   useTimelineEventos, useAdicionarObservacaoTimeline, useEditarDescricaoTimeline,
-  useRegistrarSessaoRetroativa, useVincularFotoASessao, useSessoesDePlanos,
+  useRegistrarSessaoRetroativa, useVincularFotoASessao, useRenomearFoto,
   useFotosPaciente, useUploadFoto, useRemoverFoto,
   useExames, useUploadExame, useRemoverDocumento,
   useInvestimentos, useNotasFiscais, useCriarInvestimento, useAtualizarInvestimento, useUploadNotaFiscal,
@@ -159,7 +159,7 @@ export default function PacientePerfil() {
       </div>
 
       {activeTab === 'timeline' && <TimelineTab pacienteId={paciente.id} planos={paciente.planos_tratamento} />}
-      {activeTab === 'fotos' && <FotosTab pacienteId={paciente.id} planos={paciente.planos_tratamento} />}
+      {activeTab === 'fotos' && <FotosTab pacienteId={paciente.id} />}
       {activeTab === 'perfil' && <GraficosExameTab pacienteId={paciente.id} />}
       {activeTab === 'investimentos' && <InvestimentosTab pacienteId={paciente.id} />}
 
@@ -1400,18 +1400,15 @@ function TimelineTab({ pacienteId, planos }) {
 
 const SEM_SESSAO_LABEL = 'Sem sessão vinculada';
 
-function FotosTab({ pacienteId, planos }) {
+function FotosTab({ pacienteId }) {
   const { data: fotos = [] } = useFotosPaciente(pacienteId);
   const uploadFoto = useUploadFoto();
-  const vincularFoto = useVincularFotoASessao();
+  const renomearFoto = useRenomearFoto();
   const inputRef = useRef(null);
   const [fotoParaExcluir, setFotoParaExcluir] = useState(null);
   const [fotoAberta, setFotoAberta] = useState(null);
-  const [vinculandoGrupo, setVinculandoGrupo] = useState(null);
-  const [sessaoEscolhida, setSessaoEscolhida] = useState('');
-
-  const planoIds = (planos || []).map((p) => p.id);
-  const { data: sessoesDisponiveis = [] } = useSessoesDePlanos(planoIds);
+  const [marcandoGrupo, setMarcandoGrupo] = useState(null);
+  const [tituloDigitado, setTituloDigitado] = useState('');
 
   const handleFiles = (files) => {
     Array.from(files || []).forEach((file) => {
@@ -1421,24 +1418,25 @@ function FotosTab({ pacienteId, planos }) {
     });
   };
 
-  const abrirVinculo = (label) => {
-    setVinculandoGrupo(vinculandoGrupo === label ? null : label);
-    setSessaoEscolhida('');
+  const abrirMarcacao = (label) => {
+    setMarcandoGrupo(marcandoGrupo === label ? null : label);
+    setTituloDigitado('');
   };
 
-  const confirmarVinculo = (fotosDoGrupo) => {
-    if (!sessaoEscolhida) return;
+  const confirmarMarcacao = (fotosDoGrupo) => {
+    const titulo = tituloDigitado.trim();
+    if (!titulo) return;
     let restantes = fotosDoGrupo.length;
     let falhou = false;
     fotosDoGrupo.forEach((f) => {
-      vincularFoto.mutate({ pacienteId, documentoId: f.id, sessaoId: sessaoEscolhida }, {
-        onError: (error) => { falhou = true; toast({ title: 'Erro ao vincular foto', description: error?.message, variant: 'destructive' }); },
+      renomearFoto.mutate({ pacienteId, documentoId: f.id, titulo }, {
+        onError: (error) => { falhou = true; toast({ title: 'Erro ao marcar fotos', description: error?.message, variant: 'destructive' }); },
         onSettled: () => {
           restantes -= 1;
           if (restantes === 0) {
-            if (!falhou) toast({ title: 'Fotos vinculadas à sessão.' });
-            setVinculandoGrupo(null);
-            setSessaoEscolhida('');
+            if (!falhou) toast({ title: 'Fotos marcadas.' });
+            setMarcandoGrupo(null);
+            setTituloDigitado('');
           }
         },
       });
@@ -1473,7 +1471,7 @@ function FotosTab({ pacienteId, planos }) {
       ) : (
         [...groups.entries()].map(([label, group]) => {
           const semSessao = label === SEM_SESSAO_LABEL;
-          const editandoVinculo = vinculandoGrupo === label;
+          const editando = marcandoGrupo === label;
           return (
           <div key={label} className="bg-card rounded-2xl border p-5" style={{ borderColor: 'var(--border-color)', boxShadow: '0 8px 20px rgba(0,0,0,.05)' }}>
             <div className="flex items-center justify-between mb-4">
@@ -1481,11 +1479,11 @@ function FotosTab({ pacienteId, planos }) {
                 <h3 className="font-semibold" style={{ color: 'var(--text-primary)' }}>{label}</h3>
                 {semSessao && (
                   <button
-                    onClick={() => abrirVinculo(label)}
+                    onClick={() => abrirMarcacao(label)}
                     className="p-1 rounded-md transition-colors"
                     style={{ color: 'var(--heading-accent)' }}
-                    aria-label="Vincular fotos a uma sessão"
-                    title="Vincular a uma sessão"
+                    aria-label="Marcar a sessão destas fotos"
+                    title="Marcar a sessão destas fotos"
                   >
                     <Pencil size={13} />
                   </button>
@@ -1493,37 +1491,26 @@ function FotosTab({ pacienteId, planos }) {
               </div>
               <span className="text-xs" style={{ color: 'var(--text-secondary)' }}>{group.length} foto{group.length > 1 ? 's' : ''}</span>
             </div>
-            {editandoVinculo && (
+            {editando && (
               <div className="flex flex-wrap items-center gap-2 mb-4 p-3 rounded-xl" style={{ backgroundColor: 'var(--bg-tag)' }}>
-                {sessoesDisponiveis.length === 0 ? (
-                  <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>Nenhuma sessão registrada ainda para este paciente.</p>
-                ) : (
-                  <>
-                    <select
-                      value={sessaoEscolhida}
-                      onChange={(e) => setSessaoEscolhida(e.target.value)}
-                      className="px-3 py-2 rounded-lg border text-sm outline-none flex-1 min-w-[200px]"
-                      style={{ borderColor: 'var(--border-color)', backgroundColor: 'rgb(var(--card))' }}
-                    >
-                      <option value="">Selecione a sessão...</option>
-                      {sessoesDisponiveis.map((s) => (
-                        <option key={s.id} value={s.id}>
-                          Sessão {s.numero_sessao}{s.data ? ` — ${new Date(s.data).toLocaleDateString('pt-BR')}` : ''}
-                        </option>
-                      ))}
-                    </select>
-                    <button
-                      onClick={() => confirmarVinculo(group)}
-                      disabled={!sessaoEscolhida || vincularFoto.isPending}
-                      className="px-3 py-2 rounded-lg text-sm font-semibold text-white disabled:opacity-50"
-                      style={{ backgroundColor: 'var(--green-primary)' }}
-                    >
-                      {vincularFoto.isPending ? 'Vinculando...' : 'Vincular'}
-                    </button>
-                  </>
-                )}
+                <input
+                  value={tituloDigitado}
+                  onChange={(e) => setTituloDigitado(e.target.value)}
+                  placeholder="Ex: Sessão 1"
+                  autoFocus
+                  className="px-3 py-2 rounded-lg border text-sm outline-none flex-1 min-w-[160px]"
+                  style={{ borderColor: 'var(--border-color)', backgroundColor: 'rgb(var(--card))' }}
+                />
                 <button
-                  onClick={() => setVinculandoGrupo(null)}
+                  onClick={() => confirmarMarcacao(group)}
+                  disabled={!tituloDigitado.trim() || renomearFoto.isPending}
+                  className="px-3 py-2 rounded-lg text-sm font-semibold text-white disabled:opacity-50"
+                  style={{ backgroundColor: 'var(--green-primary)' }}
+                >
+                  {renomearFoto.isPending ? 'Salvando...' : 'Salvar'}
+                </button>
+                <button
+                  onClick={() => setMarcandoGrupo(null)}
                   className="px-3 py-2 rounded-lg text-sm font-medium border"
                   style={{ borderColor: 'var(--border-color)', color: 'var(--text-secondary)' }}
                 >
